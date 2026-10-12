@@ -14,7 +14,7 @@ struct Preset {
     const char* name;
     float hz[3], radius[3];
     float density, grain_ms, decay_ms, noise_mix, resonance_mix, level;
-    enum Kind { Acoustic, Chain, Plucked, Halo, FiveSynth, SixSynth, Cuica, Guiro } kind = Acoustic;
+    enum Kind { Acoustic, Chain, Plucked, Halo, FiveSynth, SixSynth, Cuica, Guiro, Vibroslap } kind = Acoustic;
     float wet = 0, feedback = 0;
 };
 constexpr Preset presets[kPresetCount] = {
@@ -27,6 +27,7 @@ constexpr Preset presets[kPresetCount] = {
     {"SIX LYDIAN",     {}, {}, 0, 1, 1, 0, 0, 4.2f, Preset::SixSynth, .12f, .70f},
     {"CUICA", {520, 1450, 2600}, {.988f, .975f, .95f}, 0, 1, 72, 0, 0, 2.4f, Preset::Cuica, .06f, .52f},
     {"GUIRO", {780, 1560, 3050}, {.993f, .989f, .975f}, 0, 1, 42, 0, 0, 1.9f, Preset::Guiro, .035f, .45f},
+    {"VIBROSLAP", {830, 1830, 3470}, {.992f, .987f, .977f}, 0, 1, 1, 0, 0, 2.0f, Preset::Vibroslap, .025f, .38f},
 };
 constexpr int dorian[] = {50,52,53,55,57,59,60,62,64,65,67,69,71,72,74};
 constexpr int lydian[] = {52,54,56,58,59,61,63,64,66,68,70,71,73,75,76};
@@ -284,6 +285,7 @@ void Synth::reset() {
     final_dc_x_ = final_dc_y_ = 0;
     mod_counter_ = 0;
     friction_ = Friction{};
+    slap_ = Slap{};
     five_.reset();
     six_.reset();
     std::fill(std::begin(room_damp_), std::end(room_damp_), 0);
@@ -444,6 +446,58 @@ float Synth::guiro(float activity, float decay) {
     const float body = modes_[0].tick(excitation)+.72f*modes_[1].tick(excitation)+.45f*modes_[2].tick(excitation);
     return .75f*body+.22f*scratch;
 }
+void Synth::triggerSlap(float strike) {
+    if (strike < kVibroslapThreshold || slap_.cooldown) return;
+    auto& s = slap_;
+    const float strength = (strike-kVibroslapThreshold)/(1-kVibroslapThreshold);
+    // Latch the duration once at impact. Ongoing activity and weaker peaks must
+    // neither sustain nor shorten it. Keep ringing modes intact on a new slap.
+    s.duration = s.remaining = int((.24f+1.55f*strength)*kSampleRate);
+    s.amplitude = .5f+.5f*strength;
+    s.cooldown = kSampleRate*160/1000; // Reject the immediate rebound of one gesture.
+    s.phase = 0;
+    s.spacing = 1;
+    s.pins = s.gap = 0;
+    s.impact = 1.8f*s.amplitude;
+    s.grain = .5f*s.amplitude;
+}
+
+float Synth::vibroslap() {
+    auto& s = slap_;
+    if (s.cooldown) --s.cooldown;
+    float contact = s.impact;
+    s.impact = 0;
+    if (s.remaining) {
+        const float life = float(s.remaining)/s.duration;
+        const float envelope = s.amplitude*life*(.35f+.65f*life);
+        // A slowing spring shakes loose pins in little clusters. Slightly
+        // uneven spacing and individual contacts give a dry clatter, not a hiss.
+        s.phase += (45+20*life)/kSampleRate;
+        if (s.phase >= s.spacing) {
+            s.phase -= s.spacing;
+            s.spacing = .80f+.40f*uniform();
+            s.pins = 3;
+            s.gap = 0;
+        }
+        if (s.pins && --s.gap <= 0) {
+            const float force = envelope*(.5f+.5f*uniform());
+            contact += force*(uniform()<.5f ? -1 : 1);
+            s.grain = std::max(s.grain,.4f*force);
+            --s.pins;
+            s.gap = 25+int(70*uniform());
+        }
+        --s.remaining;
+    }
+    s.grain *= .97f; // Sub-millisecond rough contact, followed by the wooden box.
+    if (s.grain < 1e-10f) s.grain = 0;
+    const float noise = (uniform()*2-1)*s.grain;
+    low_ += .25f*(noise-low_);
+    if (std::fabs(low_) < 1e-18f) low_ = 0;
+    const float excitation = contact+.45f*(noise-.65f*low_);
+    const float body = modes_[0].tick(excitation)+.55f*modes_[1].tick(excitation)+.3f*modes_[2].tick(excitation);
+    return .65f*body+.15f*noise;
+}
+
 float Synth::room(float input) {
     const auto& p = presets[preset_];
     float sum = 0;
@@ -467,6 +521,7 @@ void Synth::render(int16_t* out, size_t count, int preset, float activity, float
     strike = bounded(strike, 0, 1);
     gain = bounded(gain, 0, 1);
     const bool notes = presetHasNotes(preset_);
+    if (p.kind == Preset::Vibroslap) triggerSlap(strike);
     if (p.kind == Preset::Cuica) {
         if (strike>0) friction_.fast = friction_.slow = 1;
         if (strike>0 || mod_counter_==0) friction_.pull_target = strike_direction<0 ? 1 : 0;
@@ -498,6 +553,8 @@ void Synth::render(int16_t* out, size_t count, int preset, float activity, float
             x = p.level*cuica(activity,decay);
         } else if (p.kind == Preset::Guiro) {
             x = p.level*guiro(activity,decay);
+        } else if (p.kind == Preset::Vibroslap) {
+            x = p.level*vibroslap();
         } else {
             const bool modulation_tick = (mod_counter_++ & 63) == 0;
             if (modulation_tick && p.kind != Preset::Acoustic && std::fabs(pitch_ratio_-target_ratio)>.00001f) {
@@ -554,7 +611,8 @@ void OutputVoice::render(int16_t* out, size_t count, const Performance& state, i
     const float strike = fresh && state.strike_id != last_strike_ && now_us - state.strike_us < 50000
         ? state.strike : 0;
     last_strike_ = state.strike_id;
-    const bool excitation = activity>0 || strike>0 || state.preset!=last_preset_ || gain!=last_gain_;
+    const bool gesture = state.preset==kVibroslap ? strike>=kVibroslapThreshold : activity>0 || strike>0;
+    const bool excitation = gesture || state.preset!=last_preset_ || gain!=last_gain_;
     last_preset_ = state.preset;
     last_gain_ = gain;
     if (excitation) { quiet_frames_ = 0; idle_ = false; }

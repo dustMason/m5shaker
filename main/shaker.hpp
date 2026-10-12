@@ -9,8 +9,10 @@ namespace shaker {
 constexpr int kSampleRate = 48000;
 // Append new sounds so stored preset IDs keep their meaning across updates.
 enum PresetId { kEgg, kCabasa, kChainRide, kDorianPluck, kDorianHalo, kFiveHira, kSixLydian,
-                kCuica, kGuiro, kPresetCount };
+                kCuica, kGuiro, kVibroslap, kPresetCount };
 constexpr float kSensitivity = 1.0f;  // Increase for a lighter playing touch.
+// Normalized, smoothed acceleration peak: lighter motion cannot start a slap.
+constexpr float kVibroslapThreshold = .42f;
 constexpr int kVolumeCount = 3;
 constexpr int64_t kButtonHoldUs = 800000;
 uint8_t speakerVolume(int step); // 30%, 60%, 100% of the 0..255 control range.
@@ -154,6 +156,13 @@ private:
     } friction_;
     float cuica(float activity, float decay);
     float guiro(float activity, float decay);
+    struct Slap {
+        int remaining = 0, duration = 1, cooldown = 0;
+        int pins = 0, gap = 0;
+        float amplitude = 0, phase = 0, spacing = 1, grain = 0, impact = 0;
+    } slap_;
+    void triggerSlap(float strike);
+    float vibroslap();
     Five five_;
     Six six_;
     void excite(String& string, float hz, float velocity, bool halo);

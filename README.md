@@ -2,12 +2,12 @@
 
 Firmware for the **M5Stack AtomS3R with its built-in screen and BMI270**. The board synthesizes percussion and streams it to a Mac as a USB Audio Class 2 input named **AtomS3R Shaker**. With an **Atomic Echo Base (A149)** attached, it also plays through the base's speaker. USB works with or without the base.
 
-**Status:** nine synthesized sounds, direction-sensitive cuíca push/pull, pixel-art display, USB audio, and Echo Base speaker output. Portable sanitizer tests and ESP-IDF builds pass. The latest sound, display, and power-management changes still need complete hardware verification. This repository contains source and dependency manifests; it does not include firmware binaries or generated previews.
+**Status:** ten synthesized sounds, direction-sensitive cuíca push/pull, pixel-art display, USB audio, and Echo Base speaker output. Portable sanitizer tests and ESP-IDF builds pass. The latest sound, display, and power-management changes still need complete hardware verification. This repository contains source and dependency manifests; it does not include firmware binaries or generated previews.
 
 ## Playing
 
-- Shake in any direction. Gentle motion gives quieter, softer sounds; stronger motion increases loudness, brightness, and the density of simulated collisions.
-- **Tap and release the front screen button** to cycle through the **9 sounds** listed below, then return to Egg. The change happens on release.
+- Shake in any direction. Gentle motion gives quieter, softer sounds; stronger motion increases loudness, brightness, and the density of simulated collisions. Vibroslap has its own impact threshold: light motion stays silent, and a sharp shake starts a rattle whose length follows impact strength.
+- **Tap and release the front screen button** to cycle through the **10 sounds** listed below, then return to Egg. The change happens on release.
 - **Hold the front button for 0.8 seconds** to advance speaker volume: **30% → 60% → 100% → 30%**. One hold changes volume once, even if you keep holding. Release before making another change; releasing a hold does not change the sound.
 - The speaker gives **one quick beep for 30%, two for 60%, and three for 100%**. The separate side reset button is used for programming.
 - The screen shows only the current instrument's pixel-art icon: no text, meters, note readout, or status overlays. Volume holds retain the instrument icon; use the one/two/three speaker beeps to identify the volume setting.
@@ -32,7 +32,7 @@ The sleep implementation uses an NVS snapshot of the codec registers as well as 
 
 ### Twist to change pitch
 
-Twist the Atom around the axis running straight through the USB plug, like turning a screwdriver. **Chain Ride** bends smoothly over +/-12 semitones. The **Dorian strings**, **FIVE HIRA**, and **SIX LYDIAN** select scale notes for the next shake. A quarter-turn in either direction reaches the low or high end of each pitch range. Egg, Cabasa, Cuica and Guiro do not use twist-to-pitch control. Cuica's pitch contour comes from the push/pull stroke and simulated rubbing pressure.
+Twist the Atom around the axis running straight through the USB plug, like turning a screwdriver. **Chain Ride** bends smoothly over +/-12 semitones. The **Dorian strings**, **FIVE HIRA**, and **SIX LYDIAN** select scale notes for the next shake. A quarter-turn in either direction reaches the low or high end of each pitch range. Egg, Cabasa, Cuica, Guiro and Vibroslap do not use twist-to-pitch control. Cuica's pitch contour comes from the push/pull stroke and simulated rubbing pressure.
 
 ### Dorian Pluck and Dorian Halo
 
@@ -72,9 +72,17 @@ Direction is a relative playing gesture inferred from signed acceleration, not a
 
 These are original modeled sounds, not recordings or sample playback. The cuíca behavior is informed by [friction-drum playing](https://www.si.edu/object/cuica%3Aacm_2003.0032.0388), and the güiro by a [ridged gourd and scraper](https://www.si.edu/object/musical-gourd-rasp-scratcher%3Anmnhanthropology_8423930). Acoustic realism and levels on the small Echo speaker still require listening on the hardware.
 
+### Vibroslap: impact controls the tail
+
+**VIBROSLAP** is sound 10, after Guiro. Play it with a sharp wrist snap. Only a detected acceleration peak at or above **0.42** on the normalized 0–1 motion scale triggers it; continuous motion and lighter peaks cannot start, extend, or shorten the sound. The value is measured after gravity removal and smoothing, so it is not a raw-g threshold.
+
+An accepted impact latches a **0.24–1.79 second** rattle duration. Just-over-threshold impacts make a short slap; the strongest impacts produce a longer, somewhat louder rattle. A woody initial clack leads into uneven clusters of pin-like contacts and damped wooden-box resonances. The flutter slows and fades over the latched duration. A **160 ms retrigger guard** rejects the immediate rebound of one gesture; a new strong impact after that starts a fresh slap, preserving the ringing body for a smooth transition. Rotation does not change its pitch.
+
+This is an original synthesis model inspired by the [wooden Vibra-Slap's struck-ball playing action and crisp tone](https://www.lpmusic.com/products/lp208-vibra-slap-standard/), not a recording. Its threshold and feel still need an audition with real hand motion.
+
 ### Pixel-art display
 
-Nine original 32 × 32 icons are displayed at an exact 4× scale on the 128 × 128 screen. All pixels are black, white, or red; there is no smoothing, animation, text, or level meter. The icon changes only when the selected sound changes. One persistent 8 KiB packed frame is composed off-screen and transferred as an opaque image, with no blank erase frame and no allocations during playing. Motion, changing notes, and volume holds do not cause redraws. Screen-off/wake retains the image and restores the correct selection before the backlight returns.
+Ten original 32 × 32 icons are displayed at an exact 4× scale on the 128 × 128 screen. All pixels are black, white, or red; there is no smoothing, animation, text, or level meter. The icon changes only when the selected sound changes. One persistent 8 KiB packed frame is composed off-screen and transferred as an opaque image, with no blank erase frame and no allocations during playing. Motion, changing notes, and volume holds do not cause redraws. Screen-off/wake retains the image and restores the correct selection before the backlight returns.
 
 | Sound | Icon |
 |---|---|
@@ -87,6 +95,7 @@ Nine original 32 × 32 icons are displayed at an exact 4× scale on the 128 × 1
 | SIX LYDIAN | White synth with a red pulse waveform. |
 | Cuica | White friction drum with a red rubbing rod. |
 | Guiro | White ridged gourd with a red diagonal scraper. |
+| Vibroslap | White bent spring and hollow rattle box, with a red striker ball and pins. |
 
 An actual sensor/speaker failure replaces the instrument with a static red warning symbol. Boot errors use the same symbol; technical details go to the firmware log. A live sensor fault still inhibits automatic sleep. This diagnostic screen also uses only the three-color palette.
 
@@ -111,6 +120,7 @@ The firmware reads both BMI270 sensors at 200 Hz: accelerometer +/-8 g and gyro 
 | 7 | SIX LYDIAN | Round pulse/saw/sub MDLR plucks in E Lydian, with light chorus and six voices. |
 | 8 | Cuica | Direction-selected push/pull squeaks, with contrasting pitch contours and tone. |
 | 9 | Guiro | Wooden ridge scrapes; stronger motion increases speed and loudness. |
+| 10 | Vibroslap | Threshold-triggered clack and rattle; harder impacts produce longer tails. |
 
 Maraca, Ion Swish, Phase Wash, Laser Sand, Glass Dust, and Deep Space have been removed. Sleigh and Tambo remain removed.
 
@@ -169,11 +179,11 @@ Important configuration is in `sdkconfig.defaults`: 48 kHz, mono, 16-bit, microp
 
 | File | What to change |
 |---|---|
-| `main/shaker.hpp` | `kSensitivity`: increase above 1.0 for a lighter playing touch. `kButtonHoldUs`: hold duration, initially 800,000 microseconds. |
+| `main/shaker.hpp` | `kSensitivity`: increase above 1.0 for a lighter playing touch. `kVibroslapThreshold`: minimum normalized impact, initially 0.42. `kButtonHoldUs`: hold duration, initially 800,000 microseconds. |
 | `main/shaker.cpp` | `presets[]`: collision/resonance settings and levels. `excite()` tunes the strings; `dorian[]` / `hirajoshi[]` define the two scale maps. |
 | `main/shaker.cpp` | `Motion::update()`: 0.12 g dead zone, smoothing, and peak detection. `speakerVolume()` / `speakerVolumePercent()`: the three local volume levels. `VolumeCue`: confirmation beeps. |
 | `main/main.cpp` | Button, screen, motion polling, Echo Base detection/playback, and host audio controls. |
-| `main/instrument_icons.hpp` | The nine 32 × 32 icons, diagnostic symbol, and packed frame composer. |
+| `main/instrument_icons.hpp` | The ten 32 × 32 icons, diagnostic symbol, and packed frame composer. |
 | `main/power_control.cpp` | NVS resume snapshot and hardware sleep/wake register handling. |
 | `main/five.cpp` / `main/six.cpp` | Synth patches, pluck envelopes, voice allocation, filter limits, and SIX chorus. |
 | `main/analog_dsp.*` | Shared MDLR oscillator/envelope helpers and tanh approximation. |
@@ -195,19 +205,21 @@ sh tests/run.sh
 
 Button tests cover short-press release, the exact 0.8-second boundary, holds lasting more than 15 seconds without repeats, release after a hold, and volume wraparound. Audio tests count the one/two/three beep sequences, check identical timing across buffer sizes, bounded mixing, and complete restoration of the instrument level.
 
-The tests use AddressSanitizer and UndefinedBehaviorSanitizer, and check silence in different orientations, sensor noise rejection, peak cadence, soft/hard dynamics for all presets, bounded output, DC, decay, mute, and reset. They also check that speaker rendering continues without USB, USB start/stop/mute does not alter speaker state, and old sensor data cannot sustain the sound. Reverb tests check clearing on preset changes, identical rendering across different block sizes, and audible ringing tails. To generate a 54-second WAV using the same synth and simulated shakes:
+The tests use AddressSanitizer and UndefinedBehaviorSanitizer, and check silence in different orientations, sensor noise rejection, peak cadence, soft/hard dynamics for all presets, bounded output, DC, decay, mute, and reset. They also check that speaker rendering continues without USB, USB start/stop/mute does not alter speaker state, and old sensor data cannot sustain the sound. Reverb tests check clearing on preset changes, identical rendering across different block sizes, and audible ringing tails. To generate a 60-second WAV using the same synth and simulated shakes:
 
 ```sh
 sh tests/run.sh /tmp/shaker-preview.wav
 ```
 
-The preview plays all 9 presets in button order, six seconds each: 1.2 seconds of gentle shaking with a decay gap, then 1.2 seconds of strong shaking with a longer decay gap. Tails are rendered naturally. It is a software render, not a recording from the hardware.
+The preview plays all 10 presets in button order, six seconds each: 1.2 seconds of gentle shaking with a decay gap, then 1.2 seconds of strong shaking with a longer decay gap. Vibroslap uses an above-threshold shake for its quieter example. Tails are rendered naturally. It is a software render, not a recording from the hardware.
 
 Cuica/Guiro tests verify preserved preset IDs, fast cold attacks, short tails, arbitrary 127/113-frame splits, a voiced Cuica pitch scoop, and increasing audible ridge density for stronger Guiro motion. Both are also covered by the full preset dynamics, rotation independence, mute/reset, sensor-staleness, and power-idle tests. In the standard repeated-shake gesture, hard/soft RMS ratios are 3.5× for Cuica and 6.0× for Guiro.
 
 Cuica direction tests cover four shake axes at 2/5/7 Hz and two strengths, repeated kicks in the same direction, a changed playing axis, missed strike IDs, shared speaker/USB direction, separate push/pull dynamics, and rapid alternating strokes across odd audio blocks. In the isolated 0.9-strength test, the early voiced pitch measures about 366 Hz on push and 203 Hz on pull. These are software checks; natural hand motions and hardware audio still need an audition.
 
-Power tests exercise exact 15-second and 120-second boundaries, activity cancellation, USB host protection even without recording, a fresh timeout after host removal, sensor-fault handling, restored button behavior, complete audible tails for all nine presets, and the first new strike after silent DSP suspension. These are host software tests, not measurements of board sleep current.
+Vibroslap tests cover silence below threshold even during sustained motion, the inclusive threshold boundary, one accepted impact across four axes, strength-dependent audible duration, unchanged tails during follow-through, rebound rejection, deliberate retriggers, shared event delivery, silent DSP suspension, and continuity across 127/113-frame blocks. Rendered audible lengths at threshold, medium, and maximum strength are about 0.24, 0.97, and 1.76 seconds (10 ms windows above 20 PCM RMS).
+
+Power tests exercise exact 15-second and 120-second boundaries, activity cancellation, USB host protection even without recording, a fresh timeout after host removal, sensor-fault handling, restored button behavior, complete audible tails for all ten presets, and the first new strike after silent DSP suspension. These are host software tests, not measurements of board sleep current.
 
 Additional tests exercise USB-axis rotation in both directions, return to neutral, rejection of the other two pure rotation axes, vertical-axis tracking, invalid gyro data, rapid Chain Ride pitch sweeps, and identical traditional-sound output regardless of pitch input. Rotation-recovery regressions include one and three complete turns in both directions at 180 and 1800 degrees/second, smooth wrap transitions, neutral scale-note recovery, subsequent +/-45-degree control, strong linear acceleration, and multi-axis tumbling through the swing/twist singularity. The full-turn recovery test fails on the preceding firmware and passes with the fix. The main preview uses neutral pitch (D4 for the strings, E4 for FIVE/SIX). Additional tests measure actual rendered string tuning using autocorrelation, check every scale note, boundary hysteresis, silence without a strike, unchanged ringing notes during rotation, note capture at shake peaks, single-trigger delivery, and rapid retrigger stability. Soft/hard repeated shakes measured a 4.3x/4.4x RMS difference for Pluck/Halo in the test gesture.
 
@@ -241,7 +253,7 @@ After an ESP-IDF build, this checks the descriptors embedded in the compiled fir
 python tests/check_usb_descriptor.py build/atoms3r_shaker.elf
 ```
 
-Remaining hardware checks: audition Cuica push/pull with real back-and-forth motion and Guiro through speaker and USB, compare levels/character, check rapid retriggers and the two new icons; verify 15-second backlight-off and two-minute deep sleep on a charger/battery; confirm no motion/front-button wake, side-reset recovery of audio/display/IMU and settings, repeated sleep/wake cycles, USB suspend/unplug protection and whole-stack current with the A151; confirm that rough shaking/full turns do not leave note selection stuck, confirm icon colors/selection, flicker-free changes, and correct display wake, confirm SIX plays cleanly through USB, confirm cutoff progression on FIVE, note selection, and clean simultaneous speaker/USB output; boot without the Echo Base; confirm clean local playback using power-bank power; check independent host mute; verify each button press selects once; compare light/hard shakes in each orientation; verify longer recording and repeated stop/start behavior; and measure end-to-end latency. The configured 4 ms blocks are not an end-to-end latency claim.
+Remaining hardware checks: audition Vibroslap threshold, impact-to-length response, rebound rejection and icon; audition Cuica push/pull with real back-and-forth motion and Guiro through speaker and USB, compare levels/character, check rapid retriggers and the two new icons; verify 15-second backlight-off and two-minute deep sleep on a charger/battery; confirm no motion/front-button wake, side-reset recovery of audio/display/IMU and settings, repeated sleep/wake cycles, USB suspend/unplug protection and whole-stack current with the A151; confirm that rough shaking/full turns do not leave note selection stuck, confirm icon colors/selection, flicker-free changes, and correct display wake, confirm SIX plays cleanly through USB, confirm cutoff progression on FIVE, note selection, and clean simultaneous speaker/USB output; boot without the Echo Base; confirm clean local playback using power-bank power; check independent host mute; verify each button press selects once; compare light/hard shakes in each orientation; verify longer recording and repeated stop/start behavior; and measure end-to-end latency. The configured 4 ms blocks are not an end-to-end latency claim.
 
 ## Dependencies and references
 

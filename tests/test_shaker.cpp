@@ -1,4 +1,5 @@
 #include "shaker.hpp"
+#include "instrument_icons.hpp"
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -568,7 +569,7 @@ void testFrictionPercussion() {
     static_assert(kSixLydian==6 && kCuica==7 && kGuiro==8);
     ButtonControl button;
     button.restore(kSixLydian,1);
-    for (int expected : {kCuica,kGuiro,kEgg}) {
+    for (int expected : {kCuica,kGuiro,kVibroslap,kEgg}) {
         button.update(true,1000000);
         assert(button.update(false,1100000)==ButtonControl::Action::Sound);
         assert(button.preset()==expected && button.volumeStep()==1);
@@ -754,7 +755,101 @@ void testCuicaDirections() {
     std::printf("PASS: cuica push/pull directions on four axes at 2/5/7 Hz, same-direction kicks, axis changes, sink agreement and rapid split-block strokes; %.1f / %.1f Hz.\n",push,pull);
 }
 
+void testVibroslap() {
+    static_assert(kCuica==7 && kGuiro==8 && kVibroslap==9);
+    static_assert(instrument_icons::kCount==kPresetCount);
+    assert(!presetHasNotes(kVibroslap) && !presetHasPitch(kVibroslap));
+    // Below-threshold movement cannot excite this instrument, even at maximum
+    // continuous activity. The threshold is inclusive and applies to peaks.
+    Synth silent;
+    std::vector<int16_t> block(kSampleRate);
+    for (float strike : {0.0f, kVibroslapThreshold-.001f,
+                        std::numeric_limits<float>::quiet_NaN()}) {
+        silent.render(block.data(),block.size(),kVibroslap,1,strike);
+        assert(stats(block).peak==0);
+    }
+    std::array<double,3> lengths{};
+    int index=0;
+    for (float strike : {kVibroslapThreshold,.7f,1.0f}) {
+        Synth single(123);
+        std::vector<int16_t> hit(3*kSampleRate);
+        single.render(hit.data(),hit.size(),kVibroslap,0,strike);
+        assert(stats({hit.begin(),hit.begin()+960}).rms>250);
+        // Measure the audible duration from PCM, rather than inspecting a timer.
+        for (int start=0;start<int(hit.size());start+=480) {
+            if (stats({hit.begin()+start,hit.begin()+start+480}).rms>20)
+                lengths[index]=double(start+480)/kSampleRate;
+        }
+        assert(stats({hit.end()-kSampleRate/2,hit.end()}).peak==0);
+        ++index;
+    }
+    assert(lengths[0]>.15 && lengths[0]<.4);
+    assert(lengths[1]>lengths[0]+.4 && lengths[2]>lengths[1]+.4);
+    assert(lengths[2]>1.4 && lengths[2]<2);
+
+    // Follow-through cannot extend the latched tail; an immediate second large
+    // peak is ignored, but a new deliberate impact can retrigger after 160 ms.
+    Synth still(7), moving(7), retriggered(7);
+    bool changed=false;
+    for(int n=0;n<600;++n) {
+        std::array<int16_t,240> a{},b{},c{};
+        const float hit=n==0 ? .7f : 0;
+        still.render(a.data(),a.size(),kVibroslap,0,hit);
+        moving.render(b.data(),b.size(),kVibroslap,1,n==10 ? 1 : n==0 ? hit : .3f);
+        retriggered.render(c.data(),c.size(),kVibroslap,0,n==40 ? 1 : hit);
+        assert(a==b);
+        if(n<40) assert(a==c);
+        else changed=changed || a!=c;
+    }
+    assert(changed);
+
+    // Threshold gating is reachable with realistic IMU peaks on any axis.
+    for(const auto axis : {std::array<float,3>{1,0,0},{0,1,0},{0,0,1},{.6f,0,.8f}}) {
+        for(float force : {1.0f,3.2f}) {
+            Motion motion; motion.update(0,0,1,.005f);
+            Synth voice; uint32_t last=0; int peak=0,accepted=0;
+            for(int n=0;n<300;++n) {
+                const float a=n<12 ? force*std::sin(pi*n/12) : 0;
+                const auto f=motion.update(axis[0]*a,axis[1]*a,1+axis[2]*a,.005f);
+                const float strike=f.strike_id!=last ? f.strike : 0;
+                last=f.strike_id;
+                accepted+=strike>=kVibroslapThreshold;
+                std::array<int16_t,240> pcm{};
+                voice.render(pcm.data(),pcm.size(),kVibroslap,f.activity,strike);
+                for(auto x:pcm) peak=std::max(peak,std::abs(int(x)));
+            }
+            assert(force<2 ? accepted==0 && peak==0 : accepted==1 && peak>1000);
+        }
+    }
+    // Both sinks receive one event each; duplicate IDs cannot restart the sound.
+    OutputVoice speaker,usb;
+    Synth reference;
+    Performance state; state.preset=kVibroslap;
+    for(int n=0;n<800;++n) {
+        const int64_t now=1000000+int64_t(n)*4000;
+        state.motion_us=now; state.activity=1;
+        if(n==1) {state.strike_id=1;state.strike=1;state.strike_us=now;}
+        std::array<int16_t,192> a{},b{},c{};
+        speaker.render(a.data(),a.size(),state,now,1);
+        usb.render(b.data(),b.size(),state,now,1);
+        reference.render(c.data(),c.size(),kVibroslap,0,n==1 ? 1 : 0);
+        assert(a==b && a==c);
+    }
+    assert(speaker.idle() && usb.idle()); // Weak motion does not keep silent DSP busy.
+    Synth whole(17),split(17);
+    for(int n=0;n<600;++n) {
+        const float hit=n%47==0 ? .43f+.57f*(n%3)/2 : 0;
+        std::array<int16_t,240> a{},b{};
+        whole.render(a.data(),a.size(),kVibroslap,1,hit);
+        split.render(b.data(),127,kVibroslap,1,hit);
+        split.render(b.data()+127,113,kVibroslap,1,0);
+        assert(a==b);
+    }
+    std::printf("PASS: VIBROSLAP threshold, four-axis impact gating, one-shot/cooldown/retrigger, sink agreement, idle and split blocks; audible lengths %.2f / %.2f / %.2f s.\n",lengths[0],lengths[1],lengths[2]);
+}
+
 int main(int argc, char** argv) {
+    testVibroslap();
     testCuicaDirections();
     testFrictionPercussion();
     testPowerSaving();
@@ -871,8 +966,9 @@ int main(int argc, char** argv) {
         const auto hard = perform(p, 3.2f);
         const auto a = stats(soft), b = stats(hard);
         std::printf("%-11s soft RMS %7.1f, hard RMS %7.1f, gain %4.1fx, peak %d\n",
-                    presetName(p), a.rms, b.rms, b.rms/a.rms, b.peak);
-        assert(a.rms > 20 && b.rms > a.rms*2);
+                    presetName(p), a.rms, b.rms, a.rms>0 ? b.rms/a.rms : 0, b.peak);
+        if(p==kVibroslap) assert(a.peak==0 && b.rms>200);
+        else assert(a.rms > 20 && b.rms > a.rms*2);
         assert(b.peak < 31129 && std::abs(b.mean) < b.rms*.02);
         s.render(buf.data(), buf.size(), p, 1, 1);
         for (int i=0;i<8;++i) s.render(buf.data(),buf.size(),p,0,0);
@@ -909,7 +1005,7 @@ int main(int argc, char** argv) {
             assert(stats(buf).peak==0); // Rapid pitch sweeps must not destabilize resonances.
         }
         if (argc > 1) {
-            auto quiet = perform(p,.7f,2.5f,1.2f), loud = perform(p,3.2f,3.5f,1.2f);
+            auto quiet = perform(p,p==kVibroslap ? 1.8f : .7f,2.5f,1.2f), loud = perform(p,3.2f,3.5f,1.2f);
             demo.insert(demo.end(), quiet.begin(),quiet.end());
             demo.insert(demo.end(), loud.begin(),loud.end());
         }
